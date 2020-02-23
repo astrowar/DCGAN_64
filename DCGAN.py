@@ -87,20 +87,20 @@ def make_discriminator_model(original_w, noise_var):
     model.add(tf.keras.layers.Conv2D(g // 2, k, strides=(2, 2), use_bias=False, padding='same'))
     model.add(tf.keras.layers.BatchNormalization())
     model.add(tf.keras.layers.LeakyReLU())
-    model.add(tf.keras.layers.Dropout(0.1))
+    model.add(tf.keras.layers.Dropout(0.01))
     # print(model.output_shape)
 
     # model.add(tf.keras.layers.MaxPool2D())
     model.add(tf.keras.layers.Conv2D(g, k, strides=(2, 2), use_bias=False, padding='same'))
     model.add(tf.keras.layers.BatchNormalization())
     model.add(tf.keras.layers.LeakyReLU())
-    model.add(tf.keras.layers.Dropout(0.1))
+    model.add(tf.keras.layers.Dropout(0.01))
     # print(model.output_shape)
 
     model.add(tf.keras.layers.Conv2D(g, k, strides=(1, 1), use_bias=False, padding='same'))
     model.add(tf.keras.layers.BatchNormalization())
     model.add(tf.keras.layers.LeakyReLU())
-    model.add(tf.keras.layers.Dropout(0.1))
+    model.add(tf.keras.layers.Dropout(0.01))
     # print(model.output_shape)
 
     model.add(tf.keras.layers.Flatten())
@@ -119,7 +119,7 @@ EPOCHS = 900
 num_examples_to_generate = 25
 noise_dim = 200
 decay_step = 10
-lr_initial_g = 0.0001
+lr_initial_g = 0.0002
 lr_decay_steps = 1000
 replay_step = 32
 
@@ -160,25 +160,25 @@ def discriminator_fake_loss(fake_output):
     #v1 = 0.3 - 0.5 * np.random.uniform(size=fake_output.shape)
     #vv = invert_if(v1)
     a_zeros = tf.zeros_like(fake_output)  + 0.3*tf.random.uniform( shape= fake_output.shape)
-    a_ones = tf.ones_like(fake_output) - 0.3 + 0.5 * tf.random.uniform(shape=fake_output.shape)
-    aa = tf.where(tf.random.uniform(shape=fake_output.shape) > 0.02, a_zeros, a_ones)
+    #a_ones = tf.ones_like(fake_output) - 0.3 + 0.5 * tf.random.uniform(shape=fake_output.shape)
+    #aa = tf.where(tf.random.uniform(shape=fake_output.shape) > 0.02, a_zeros, a_ones)
 
     # n = fake_output.shape[0]//10
     # a_zeros[0: n] = 1.0 - a_zeros[0: n]
-    fake_loss = cross_entropy(aa, fake_output)
+    fake_loss = cross_entropy(a_zeros, fake_output)
     # total_loss = real_loss + fake_loss
     return fake_loss
 
 
 def discriminator_real_loss(real_output):
     #fake_loss = cross_entropy(tf.one_likes(fake_output), fake_output)
-    a_zeros = tf.zeros_like(real_output) + 0.3 * tf.random.uniform(shape=real_output.shape)
+    #a_zeros = tf.zeros_like(real_output) + 0.3 * tf.random.uniform(shape=real_output.shape)
     a_ones = tf.ones_like(real_output ) - 0.3 + 0.5 * tf.random.uniform(shape=real_output.shape)
     #vv = invert_if(a_ones)
 
-    aa = tf.where( tf.random.uniform(shape=real_output.shape) > 0.02,     a_ones,   a_zeros)
+    #aa = tf.where( tf.random.uniform(shape=real_output.shape) > 0.02,     a_ones,   a_zeros)
     #print(aa)
-    real_loss = cross_entropy(aa, real_output)
+    real_loss = cross_entropy(a_ones, real_output)
     # fake_loss = cross_entropy(tf.zeros_like(fake_output), fake_output)
     # total_loss = real_loss + fake_loss
     return real_loss
@@ -213,6 +213,10 @@ def train_step( ):
 
 @tf.function
 def train_step_real(_real_images):
+    #noise = tf.random.normal([batch_size, noise_dim])
+    #generated_images =  generator(noise, training=True)
+    #mixin = tf.concat([ _real_images[2:-1] ,generated_images],0)
+    
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
         real_output = discriminator(_real_images, training=True)
         disc_r_loss = discriminator_real_loss(real_output)
@@ -221,11 +225,22 @@ def train_step_real(_real_images):
 
 
 @tf.function
-def train_step_fake(  )  : 
-    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-        noise = tf.random.normal([batch_size, noise_dim])
-        generated_images = generator(noise, training=True)
+def train_step_fake(  )  :
+    noise = tf.random.normal([batch_size, noise_dim])
+    generated_images = generator(noise, training=False)
+    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape: 
         fake_output = discriminator(generated_images, training=True)
+        disc_f_loss = discriminator_fake_loss(fake_output)
+        gradients_of_fake_discriminator = disc_tape.gradient(disc_f_loss, discriminator.trainable_variables)
+        discriminator_optimizer.apply_gradients(zip(gradients_of_fake_discriminator, discriminator.trainable_variables))
+
+@tf.function
+def train_step_fake_ix( _real_images )  : 
+    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
+        noise = tf.random.normal([batch_size-2, noise_dim])
+        generated_images =  generator(noise, training=True)
+        mixin = tf.concat([ _real_images[0:2] ,generated_images],0)
+        fake_output = discriminator(mixin, training=True)
         disc_f_loss = discriminator_fake_loss(fake_output)
         gradients_of_fake_discriminator = disc_tape.gradient(disc_f_loss, discriminator.trainable_variables)
         discriminator_optimizer.apply_gradients(zip(gradients_of_fake_discriminator, discriminator.trainable_variables))
@@ -241,7 +256,7 @@ def train_step_fake_images(generated_images  )  :
 
 
 def train_fake_and_real(_real_images):
-    train_step_fake()
+    train_step_fake( )
     train_step_real(_real_images)
     return 
 
@@ -282,8 +297,8 @@ def generate_and_save_images(model, epoch, test_input):
     # plt.show()
 
 
-generator.load_weights("generator16_e/generator")
-discriminator.load_weights("discriminator16_e/discriminator")
+generator.load_weights("generator31_f/generator")
+discriminator.load_weights("discriminator31_f/discriminator")
 
 
 def train_sets(dataset):
@@ -294,6 +309,7 @@ def train_sets(dataset):
     for image_batch in dataset:
         if ((s * batch_size) % (1024) == 0):
             print("Progress " + str(s * batch_size), end='  \r')
+            generate_and_save_images(generator, 999, seed)
         s = s +1
         #treina por 4 batchs e verifica se esta OK
         if (s % 4) == 3 :
@@ -325,6 +341,7 @@ def train_sets(dataset):
                 train_fake_and_real(image_batch)
 
 def train(dataset, epochs):
+    generate_and_save_images(generator, 0, seed)
     for epoch in range(epochs):
         print("Start Epoch", epoch)
         bb = 0
