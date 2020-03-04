@@ -137,13 +137,12 @@ def make_discriminator_model(original_w, noise_var):
     g = 64
     model = tf.keras.Sequential()
     k = (5, 5)
-
-    model.add(tf.keras.layers.Reshape([original_w, original_w, 3], input_shape=(None, original_w, original_w, 3)))
-    model.add(tf.keras.layers.GaussianNoise(noise_var))
+    model.add( tf.keras.layers.InputLayer( input_shape= (  original_w, original_w, 3)))
+    #model.add(tf.keras.layers.Reshape([original_w, original_w, 3], input_shape=(  original_w, original_w, 3)))
+    #model.add(tf.keras.layers.GaussianNoise(noise_var))
 
     conv1 =  (tf.keras.layers.Conv2D(g  , k, strides=(1, 1), padding='same', use_bias=False, input_shape=[None, original_w, original_w, 3]))
     model.add(SpectralNorm(conv1))
-
     model.add(tf.keras.layers.BatchNormalization())
     #model.add(tf.keras.layers.Dropout(0.5))
     model.add(tf.keras.layers.LeakyReLU(0.2))
@@ -193,16 +192,17 @@ def make_discriminator_model(original_w, noise_var):
     return model
 
 
-original_w = 64
-batch_size = 48 
+original_w = 32
+batch_size = 64
 EPOCHS = 900
 num_examples_to_generate = 25
 noise_dim = 200
 decay_step = 10
 lr_initial_g = 0.001
 lr_decay_steps = 1000
-replay_step = 32
 
+lr_g=lr_initial_g
+lr_d=lr_initial_g
 seed = tf.random.normal([num_examples_to_generate, noise_dim])
 
 noise_var = tf.Variable(initial_value=0.005, trainable=False, name="noiseIn")
@@ -297,21 +297,15 @@ def train_step_fake( generated_images ):
 
  
 
-##@tf.function
-##def train_step_fake_images(generated_images  )  :
-##    with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
-##        fake_output = discriminator(generated_images, training=True)
-##        disc_f_loss = discriminator_fake_loss(fake_output)
-##        gradients_of_fake_discriminator = disc_tape.gradient(disc_f_loss, discriminator.trainable_variables)
-##        discriminator_optimizer.apply_gradients(zip(gradients_of_fake_discriminator, discriminator.trainable_variables))
-
 
 def train_GD(_real_images):
     noise = tf.random.normal([batch_size, noise_dim])
     with tf.GradientTape() as gen_tape, tf.GradientTape() as disc_tape:
       generated_images = generator(noise, training=True)
-      a_fake = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     generated_images,   _real_images)
-      a_real = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     _real_images,  generated_images)  
+      a_fake = tf.concat([generated_images[1:], _real_images[:1]],0)
+      a_real = tf.concat([generated_images[:1], _real_images[1:]],0)
+      #a_fake = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     generated_images,   _real_images)
+      #a_real = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     _real_images,  generated_images)
       real_output = discriminator(a_real, training=True)
       fake_output = discriminator(a_fake, training=True)      
       gen_loss = generator_loss(fake_output)
@@ -324,8 +318,10 @@ def train_GD(_real_images):
     
 
 def train_fake_and_real(_real_images,generated_images):
-    a_fake = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     generated_images,   _real_images)
-    a_real = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     _real_images,  generated_images)
+    a_fake = tf.concat([generated_images[1:] , _real_images[:1]],0)
+    a_real = tf.concat([generated_images[:1], _real_images[1:]],0)
+    #a_fake = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     generated_images,   _real_images)
+    #a_real = tf.where( tf.random.uniform(shape=generated_images.shape) > 0.04,     _real_images,  generated_images)
     train_step_fake(a_fake )
     train_step_real(a_real)
     return 
@@ -381,32 +377,7 @@ def generate_bad_sample(test_input):
     
 
 
-#generator.load_weights("generator1/generator")
-#discriminator.load_weights("discriminator1/discriminator")
 
-
-
-##def show_bad(dataset):     
-##    bbad = []
-##   
-##    for image_batch in dataset:
-##        q = discriminator(image_batch, training=False)
-##        q = tf.reshape(q,[batch_size])
-##        qs= tf.sort(q)        
-##        tmin = qs[2]
-##        #print(tmin)
-##        for j in range(image_batch.shape[0]):            
-##            if (q[j] < tmin):
-##                bbad.append(image_batch[j] )
-##                if (len(bbad) >= 25):
-##                  
-##                    generate_bad_sample(np.array(bbad))
-##                    return 
-  
- 
- 
-
-#show_bad(training_dataset)
  
 
 def train_sets(dataset):     
@@ -451,8 +422,8 @@ def train_sets(dataset):
 ##            if e < -10.0 :
 ##                Gs = False
 ##                print(e, d)
-            if   ( e > d) :                
-                Ds = False
+            #if   ( e > d) :
+            #    Ds = False
 
         if (s % 4) == 0: #sempre treina no zero             
              train_GD(image_batch)
@@ -460,10 +431,10 @@ def train_sets(dataset):
             # treina um ou outro dependendo de como estao em relacao ao outro
             if ( Ds ==False ):  # treina somente o discr
                print("D" )
-               svnew_lr_g = generator_optimizer.learning_rate
-               generator_optimizer.learning_rate = svnew_lr_g/10.0
+               #lr_g = generator_optimizer.learning_rate
+               generator_optimizer.learning_rate = lr_g/10.0
                train_GD(image_batch)
-               generator_optimizer.learning_rate = svnew_lr_g*10.0
+               generator_optimizer.learning_rate = lr_g
             elif Gs== False and Ds ==True : # treina somente o G
                 print("G" )
                 #train_step( )
@@ -471,7 +442,9 @@ def train_sets(dataset):
                 #print("GD" )
                 train_GD(image_batch)
 
-def train(dataset, epochs): 
+def train(dataset, epochs):
+        global lr_g
+        global lr_d
         generate_and_save_images(generator, 0, seed)
         for epoch in range(epochs):
             print("Start Epoch", epoch)
@@ -479,16 +452,16 @@ def train(dataset, epochs):
             dataset.shuffle( 1000)
             train_sets(dataset)
             if (epoch%4 == 0  ):
-               generator.save_weights("generator{}/generator".format(epoch))
-               discriminator.save_weights("discriminator{}/discriminator".format(epoch))
+               generator.save("generator{}.h5".format(epoch))
+               discriminator.save("discriminator{}.h5".format(epoch))
             generate_and_save_images(generator, epoch, seed)
             print('End Epoch', epoch)
-            new_lr_g = 0.8*generator_optimizer.learning_rate
-            new_lr_d= 0.8*discriminator_optimizer.learning_rate
-            new_lr_g = tf.math.maximum(new_lr_g,0.0001)
-            new_lr_d = tf.math.maximum(new_lr_d,0.0001)
-            generator_optimizer.learning_rate = new_lr_g
-            discriminator_optimizer.learning_rate = new_lr_d
+            lr_g = 0.8*lr_g
+            lr_d= 0.8*lr_d
+            lr_g = tf.math.maximum(lr_g,0.00001)
+            lr_d = tf.math.maximum(lr_d,0.00001)
+            generator_optimizer.learning_rate = lr_g
+            discriminator_optimizer.learning_rate = lr_d
             nv= noise_var.value()
             nv =nv *0.8
             noise_var.assign(nv)
